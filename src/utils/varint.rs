@@ -1,28 +1,24 @@
-pub fn read_varint(data: &[u8], index: Option<i32>) -> Option<(u8, i32)> {
-    let mut index: i32 = index.unwrap_or(0);
+pub fn read_varint(data: &[u8], index: Option<i32>) -> Option<(u16, i32)> {
 
+    let mut index: i32 = index.unwrap_or(0);
     let mut number_read: i32 = 0;
-    let mut result: u8 = 0x00;
+    let mut result: u16 = 0x00;
 
     loop {
         let byte: u8 = data[index as usize];
         index += 1;
-        result = byte & 0b01111111;
-        result |= result << (7 * number_read); // TODO: Fix this, as its only 8 bits data is lost
-                                               // while parsing protocol version
-                                               // might cuase issues later
 
+        let value: u8 = byte & 0x7F; // Removing continuation bit
+        result |= (value as u16) << (7 * number_read); // Appending to the variable
         number_read += 1;
 
-        if (byte & 0b10000000) == 0 {
+        if (byte & 0x80) == 0 { // Checking continutation bit
             break;
         }
 
-        if number_read > 5 {
+        if number_read > 2 {
             return None;
-
         }
-
     }
     Some((result, index))
 }
