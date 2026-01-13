@@ -8,9 +8,9 @@ fn handle_connection( mut stream: TcpStream) {
     let mut buffer = [0u8; 1024];
     let mut index = 0;
 
-    let mut packet_length: u16 = 0x00;
-    let mut packet_id: u16 = 0x00;
-    let mut protocol_version: u16 = 0x00;
+    let mut packet_length: u64 = 0x00;
+    let mut packet_id: u64 = 0x00;
+    let mut protocol_version: u64 = 0x00;
     
     stream.read(&mut buffer).unwrap(); // Getting data from stream
     
