@@ -7,99 +7,79 @@ use std::thread;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-#[derive(PartialEq)]
-enum ClientState{
-    HANDSHAKE,
-    STATUS,
-    LOGIN,
-    OTHER
-}
-fn backward(server: Arc<Mutex<TcpStream>>, client: Arc<Mutex<TcpStream>>) {
+fn transfer(src: Arc<Mutex<TcpStream>>, dest: Arc<Mutex<TcpStream>>) {
 
-    let mut server_buffer = [0u8; 1024];
+    let mut src_buffer = [0u8; 1024];
+
     loop {
-        {   
-            let data_read = server.lock().unwrap().read(&mut server_buffer).unwrap();
-            println!("DATA RECV");
-            {
-            let mut tmp_client = client.lock().unwrap();
-            tmp_client.write_all(&server_buffer[..data_read]).unwrap(); // code stuck here? could client be
-                                                              // locked from somewhere else?
-            }
-            println!("DATA SENT TO CLIENT");
+        {
+            println!("[TRANS] Attempting to lock src");
+            let rdat_len = src.lock().unwrap().read(&mut src_buffer).unwrap();
+
+            println!("[TRANS] Src data read");
+
+            let mut _tmpsrc = dest.lock().unwrap().write_all(&src_buffer[..rdat_len]).unwrap(); 
+
+            println!("[TRANS] Data sent to dest");
         }
     }
+
 }
-fn handle_connection( mut stream: Arc<Mutex<TcpStream>>) {
 
-    let mut current_client_state: ClientState = ClientState::HANDSHAKE;
-
+fn handle_client(mut client: Arc<Mutex<TcpStream>>) {
+    let mut client_buffer = [0u8; 1024];
     
-    // Server bound buffer
-    let mut buffer = [0u8; 1024];
-    let mut original_server_stream = Arc::new(Mutex::new(TcpStream::connect("127.0.0.1:25565").unwrap()));
+
+    let mut server = Arc::new(
+        Mutex::new(
+            TcpStream::connect("127.0.0.1:25565").unwrap()
+        )
+    );
+
+    println!("[HANCL] Server connection done");
+
+    let mut rdat_len: usize;
+
     loop {
-        
-            // Getting data from stream
-           let data_read =  stream.lock().unwrap().read(&mut buffer).unwrap(); // Getting data from stream
-        
+        {
+            rdat_len = client.lock().unwrap().read(&mut client_buffer).unwrap();
 
-        
-
-        if current_client_state == ClientState::HANDSHAKE {
-            let mut index = 0;
-
-            let mut packet_length: u64 = 0x00;
-            let mut packet_id: u64 = 0x00;
-            let mut protocol_version: u64 = 0x00;
-
-
-            (packet_length, index) = utils::varint::read_varint(&buffer, None).unwrap();
-            (packet_id, index) = utils::varint::read_varint(&buffer, Some(index)).unwrap();
-            (protocol_version, index) = utils::varint::read_varint(&buffer, Some(index)).unwrap();
-
-            println!("packet_length: {} packet_id: {} protocol_version: {}", packet_length, packet_id, protocol_version);
-
-            let mut server_stream_c = Arc::clone(&original_server_stream);
-            let mut client_stream_c = Arc::clone(&stream);
-            
-            { 
-                let mut tmp_stream = server_stream_c.lock().unwrap();
-                tmp_stream.write_all(&buffer[..data_read]).unwrap();
-            }
-
-            println!("BACK THREAD LOADing");
-            let backward_thread_handle = thread::spawn(move || {
-                backward(server_stream_c, client_stream_c);
-            });
-            
-            println!("BACK THREAD LOADED");
-            current_client_state =  ClientState::STATUS;
+            println!("[HANCL] client data read complete");
         }
-        else {
-            println!("SENDING DATA TO SERVER");
-            let mut server_stream_c = Arc::clone(&original_server_stream);
 
-            {
-                let mut tmp_ss = server_stream_c.lock().unwrap();
-                tmp_ss.write_all(&buffer[..data_read]).unwrap();
-            }
-            println!("DATA SENT TO SERVER");
+        let mut thread_client = Arc::clone(&client);
+        let mut thread_server = Arc::clone(&server);
+
+        thread::spawn(move || {
+            transfer(thread_server, thread_client);
+        });
+        println!("[HANCL] transfer thread run sucess");
+        
+        {
+            let mut _tmpsv = server.lock().unwrap(); 
+            _tmpsv.write_all(&client_buffer[..rdat_len]).unwrap();
+            println!("[HANCL] Sending initial client data to server");
         }
     }
 }
 
 fn main() {
-    let listener = TcpListener::bind("127.0.0.1:3000").unwrap();
-    println!("[INFO] Multiplexer started at 127.0.0.1:3000");
+    let tcp_server = TcpListener::bind("127.0.0.1:3000").unwrap();
+    
+    println!("[MAIN] running server on 127.0.0.1:3000");
+    for client in tcp_server.incoming() {
+        let client_clone = Arc::new(
+            Mutex::new(client.unwrap())
+        );
 
-    for stream in listener.incoming() {
-        
-        // Cloning stream variable
-        let orginal_stream = Arc::new(Mutex::new(stream.unwrap()));
-        let clone_stream = Arc::clone(&orginal_stream);
+        println!("[MAIN] new client detected, running handling thread");
 
-        println!("[INFO] Connection established");
-        handle_connection(clone_stream);
+        thread::spawn(move || {
+            handle_client(client_clone);
+        });
+
+        println!("[MAIN] client thread run sucessfully");
     }
 }
+
+
