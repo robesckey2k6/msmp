@@ -7,59 +7,54 @@ use std::thread;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-fn transfer(src: Arc<Mutex<TcpStream>>, dest: Arc<Mutex<TcpStream>>) {
+fn transfer(mut src: TcpStream,mut dest: TcpStream) {
 
     let mut src_buffer = [0u8; 1024];
 
     loop {
         {
             println!("[TRANS] Attempting to lock src");
-            let rdat_len = src.lock().unwrap().read(&mut src_buffer).unwrap();
+            let rdat_len = src.read(&mut src_buffer).unwrap();
 
             println!("[TRANS] Src data read");
 
-            let mut _tmpsrc = dest.lock().unwrap().write_all(&src_buffer[..rdat_len]).unwrap(); 
+            let mut _tmpsrc = dest.write_all(&src_buffer[..rdat_len]).unwrap(); 
 
             println!("[TRANS] Data sent to dest");
         }
     }
 
 }
-
-fn handle_client(mut client: Arc<Mutex<TcpStream>>) {
+fn handle_client(mut client: TcpStream) {
     let mut client_buffer = [0u8; 1024];
     
 
-    let mut server = Arc::new(
-        Mutex::new(
-            TcpStream::connect("127.0.0.1:25565").unwrap()
-        )
-    );
+    let mut server = TcpStream::connect("127.0.0.1:25565").unwrap();
 
     println!("[HANCL] Server connection done");
+    let mut server_cloned = server.try_clone().unwrap();
+    let mut client_cloned= client.try_clone().unwrap();
+    thread::spawn( move || {
+        transfer(server_cloned, client_cloned);
+    });
 
     let mut rdat_len: usize;
 
     loop {
         {
-            rdat_len = client.lock().unwrap().read(&mut client_buffer).unwrap();
-
-            println!("[HANCL] client data read complete");
+            rdat_len = client.read(&mut client_buffer).unwrap();
+            println!("[HANCL] 1 client data read complete");
         }
-
-        let mut thread_client = Arc::clone(&client);
-        let mut thread_server = Arc::clone(&server);
-
-        thread::spawn(move || {
-            transfer(thread_server, thread_client);
-        });
-        println!("[HANCL] transfer thread run sucess");
+        
+        println!("[HANCL] Locking server.. ");
         
         {
-            let mut _tmpsv = server.lock().unwrap(); 
-            _tmpsv.write_all(&client_buffer[..rdat_len]).unwrap();
-            println!("[HANCL] Sending initial client data to server");
+            server.write_all(&client_buffer[..rdat_len]).unwrap();
+            println!("[HANCL] 2 Sent initial client data to server");
         }
+
+        println!("[HANCL] Unlocked server");
+
     }
 }
 
@@ -68,14 +63,11 @@ fn main() {
     
     println!("[MAIN] running server on 127.0.0.1:3000");
     for client in tcp_server.incoming() {
-        let client_clone = Arc::new(
-            Mutex::new(client.unwrap())
-        );
 
         println!("[MAIN] new client detected, running handling thread");
 
         thread::spawn(move || {
-            handle_client(client_clone);
+            handle_client(client.unwrap().try_clone().unwrap());
         });
 
         println!("[MAIN] client thread run sucessfully");
