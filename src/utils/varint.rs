@@ -1,3 +1,4 @@
+
 pub fn read_varint(data: &[u8], index: Option<i32>) -> Option<(u64, i32)> {
 
     let mut index: i32 = index.unwrap_or(0);
