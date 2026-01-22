@@ -1,5 +1,8 @@
 
 mod utils;
+mod db;
+mod models;
+
 use utils::packet::parse_handshake_data;
 
 use std::net::TcpListener;
@@ -7,9 +10,13 @@ use std::io::prelude::*;
 use std::net::TcpStream;
 use std::thread;
 
-use redis::{Client, Commands};
+use dotenv::dotenv;
 
+use sea_orm::{DatabaseConnection,EntityTrait, Set, ActiveModelBehavior};
+use sea_orm::ActiveModelTrait;
+use serde::{Deserialize, Serialize};
 
+use models::server;
 
 fn transfer(mut src: TcpStream,mut dest: TcpStream) {
     let mut src_buffer = [0u8; 1024];
@@ -27,8 +34,9 @@ fn transfer(mut src: TcpStream,mut dest: TcpStream) {
     }
 }
 
-fn handle_client(mut client: TcpStream, mut redis_instance: redis::Connection) {
-
+async fn handle_client(mut client: TcpStream, mut db: DatabaseConnection) {
+    
+    println!("DONE");
     let mut client_buffer = [0u8; 1024];
     let mut rdat_len: usize;
 
@@ -39,25 +47,18 @@ fn handle_client(mut client: TcpStream, mut redis_instance: redis::Connection) {
     
     // TODO setup database configuration for address -> port determination
     let parts: Vec<&str> = svadr.split('.').collect();
+    
+    println!("{}",parts[0]);
 
-    
-    let key_exist: bool = redis_instance.exists(parts[0]).unwrap();
-    
     let port: String;
 
-    if key_exist {
-        port = redis_instance.get(parts[0]).unwrap();
-    }
-    else {
-        client.shutdown(std::net::Shutdown::Both).unwrap();
-        return;
-    }
+    let sv = server::Entity::find_by_id(parts[0]).one(&db).await.unwrap().unwrap();
 
+    let port = sv.sport.unwrap();
     // Create server connection
     let mut server = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
 
     println!("Connection established {} -> 127.0.0.1:{}", svadr, port);
-    drop(redis_instance);
 
     server.write_all(&client_buffer[..rdat_len]).unwrap();
 
@@ -85,20 +86,22 @@ fn handle_client(mut client: TcpStream, mut redis_instance: redis::Connection) {
     }
 }
 
-fn main() {
-    let redis_client = redis::Client::open("redis://127.0.0.1:6379").unwrap();
+#[tokio::main]
+async fn main() {
+    dotenv().ok();
 
-
-    let tcp_server = TcpListener::bind("127.0.0.1:3000").unwrap();
+    let db_conn = db::init_db().await;
+     let tcp_server = TcpListener::bind("127.0.0.1:2001").unwrap();
     
-    println!("[MAIN] Multiplexer on 127.0.0.1:3000");
+    println!("[MAIN] Multiplexer on 127.0.0.1:2001");
 
 
     for client in tcp_server.incoming() {
+        let db_clone= db_conn.clone();
+        println!("connected");
 
-        let mut connection = redis_client.get_connection().unwrap();
-        thread::spawn(move || {
-            handle_client(client.unwrap(), connection);
+        tokio::spawn(async move {
+            handle_client(client.unwrap(), db_clone).await;
         });
     }
 }
