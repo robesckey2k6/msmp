@@ -12,10 +12,7 @@ use std::thread;
 
 use dotenv::dotenv;
 
-use sea_orm::{DatabaseConnection,EntityTrait, Set, ActiveModelBehavior};
-use sea_orm::ActiveModelTrait;
-use serde::{Deserialize, Serialize};
-
+use sea_orm::{DatabaseConnection,EntityTrait};
 use models::server;
 
 fn transfer(mut src: TcpStream,mut dest: TcpStream) {
@@ -34,7 +31,7 @@ fn transfer(mut src: TcpStream,mut dest: TcpStream) {
     }
 }
 
-async fn handle_client(mut client: TcpStream, mut db: DatabaseConnection) {
+async fn handle_client(mut client: TcpStream, db: DatabaseConnection) {
     
     println!("DONE");
     let mut client_buffer = [0u8; 1024];
@@ -43,18 +40,16 @@ async fn handle_client(mut client: TcpStream, mut db: DatabaseConnection) {
     // Reading handshake data
     rdat_len = client.read(&mut client_buffer).unwrap();
     
-    let (_, _, _, svadr) = utils::packet::parse_handshake_data(&client_buffer);
+    let (_, _, _, svadr) = parse_handshake_data(&client_buffer);
     
     // TODO setup database configuration for address -> port determination
     let parts: Vec<&str> = svadr.split('.').collect();
     
     println!("{}",parts[0]);
 
-    let port: String;
-
     let sv = server::Entity::find_by_id(parts[0]).one(&db).await.unwrap().unwrap();
 
-    let port = sv.sport.unwrap();
+    let port: i32 = sv.sport.unwrap();
     // Create server connection
     let mut server = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
 
@@ -62,8 +57,8 @@ async fn handle_client(mut client: TcpStream, mut db: DatabaseConnection) {
 
     server.write_all(&client_buffer[..rdat_len]).unwrap();
 
-    let mut server_cloned = server.try_clone().unwrap();
-    let mut client_cloned= client.try_clone().unwrap();
+    let server_cloned = server.try_clone().unwrap();
+    let client_cloned= client.try_clone().unwrap();
     
 
     // Spawning server -> client thread
