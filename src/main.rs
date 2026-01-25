@@ -48,7 +48,8 @@ async fn handle_client(mut client: TcpStream, db: DatabaseConnection, rqclient: 
     // Reading handshake data
     rdat_len = client.read(&mut client_buffer).unwrap();
     
-    let (_, _, _, svadr) = parse_handshake_data(&client_buffer);
+    let (_, _, _, svadr, _, intent) = parse_handshake_data(&client_buffer);
+
     
     // TODO setup database configuration for address -> port determination
     let parts: Vec<&str> = svadr.split('.').collect();
@@ -62,7 +63,7 @@ async fn handle_client(mut client: TcpStream, db: DatabaseConnection, rqclient: 
     let repl = ServerOp {
         id: parts[0].to_string()
     };
-    if(sv.status.unwrap() == "OFF".to_string()) {
+    if(sv.status.unwrap() == "OFF".to_string() && intent != 1) {
         
         //TODO add this to .env
         rqclient.post("http://127.0.0.1:2000/start_server")
