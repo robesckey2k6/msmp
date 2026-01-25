@@ -15,6 +15,14 @@ use dotenv::dotenv;
 use sea_orm::{DatabaseConnection,EntityTrait};
 use models::server;
 
+
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize)]
+struct ServerOp {
+    id: String 
+}
+
 fn transfer(mut src: TcpStream,mut dest: TcpStream) {
     let mut src_buffer = [0u8; 1024];
     
@@ -31,7 +39,7 @@ fn transfer(mut src: TcpStream,mut dest: TcpStream) {
     }
 }
 
-async fn handle_client(mut client: TcpStream, db: DatabaseConnection) {
+async fn handle_client(mut client: TcpStream, db: DatabaseConnection, rqclient: reqwest::Client) {
     
     println!("DONE");
     let mut client_buffer = [0u8; 1024];
@@ -50,6 +58,19 @@ async fn handle_client(mut client: TcpStream, db: DatabaseConnection) {
     let sv = server::Entity::find_by_id(parts[0]).one(&db).await.unwrap().unwrap();
 
     let port: i32 = sv.sport.unwrap();
+    
+    let repl = ServerOp {
+        id: parts[0].to_string()
+    };
+    if(sv.status.unwrap() == "OFF".to_string()) {
+        
+        //TODO add this to .env
+        rqclient.post("http://127.0.0.1:2000/start_server")
+            .json(&repl)
+            .send()
+            .await.unwrap();
+
+    }
     // Create server connection
     let mut server = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
 
@@ -84,7 +105,8 @@ async fn handle_client(mut client: TcpStream, db: DatabaseConnection) {
 #[tokio::main]
 async fn main() {
     dotenv().ok();
-
+    
+    let reqclient = reqwest::Client::new();
     let db_conn = db::init_db().await;
      let tcp_server = TcpListener::bind("127.0.0.1:2001").unwrap();
     
@@ -93,10 +115,11 @@ async fn main() {
 
     for client in tcp_server.incoming() {
         let db_clone= db_conn.clone();
+        let reqc_clone = reqclient.clone();
         println!("connected");
 
         tokio::spawn(async move {
-            handle_client(client.unwrap(), db_clone).await;
+            handle_client(client.unwrap(), db_clone, reqc_clone).await;
         });
     }
 }
