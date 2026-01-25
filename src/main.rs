@@ -15,12 +15,17 @@ use dotenv::dotenv;
 use sea_orm::{DatabaseConnection,EntityTrait};
 use models::server;
 
-
+use serde_json;
 use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize)]
 struct ServerOp {
     id: String 
+}
+
+#[derive(Serialize)]
+struct SvStart {
+    text: String
 }
 
 fn transfer(mut src: TcpStream,mut dest: TcpStream) {
@@ -71,8 +76,17 @@ async fn handle_client(mut client: TcpStream, db: DatabaseConnection, rqclient: 
             .send()
             .await.unwrap();
 
+        let server_start_msg = SvStart {
+            text: "Your server is starting please wait a few seconds!".to_string()
+        };
+        
+        // TODO send error message to clinet
+        return;
+
     }
-    // Create server connection
+    
+    
+        // Create server connection
     let mut server = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
 
     println!("Connection established {} -> 127.0.0.1:{}", svadr, port);
