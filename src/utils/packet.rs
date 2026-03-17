@@ -1,19 +1,7 @@
 use super::varint;
 
 /*
- * 
 */
-
-#[allow(dead_code)]
-pub fn get_pid(pak_buffer: &[u8]) -> u64 {
-    let mut index_ = 0;
-    let pid: u64;
-
-    (_, index_) = varint::read_varint(pak_buffer, Some(index_)).unwrap();
-    (pid, index_) = varint::read_varint(pak_buffer, Some(index_)).unwrap();
-    
-    pid
-}
 
 #[warn(unused_assignments)]
 pub fn parse_handshake_data(pak_buffer: &[u8]) -> (u64, u64, u64, String, u64, u64) {
@@ -36,12 +24,11 @@ pub fn parse_handshake_data(pak_buffer: &[u8]) -> (u64, u64, u64, String, u64, u
 
     let raw_svaddr = pak_buffer[us_index .. end_index].to_vec();
 
-
     let sv_address = String::from_utf8(raw_svaddr).unwrap();
 
     let port_end_index = (end_index + 2) as usize;
-     // TODO get port number let portasb: [u8; 8] = pak_buffer[end_index .. port_end_index].try_into().unwrap();
 
+     // TODO get port number let portasb: [u8; 8] = pak_buffer[end_index .. port_end_index].try_into().unwrap();
     // port = u64::from_le_bytes(portasb);
 
     let (intent, _) = varint::read_varint(pak_buffer, Some(port_end_index as i32)).unwrap();

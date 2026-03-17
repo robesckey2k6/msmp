@@ -1,8 +1,8 @@
 
 mod utils;
-mod db;
 mod models;
 
+use models::server::ServerConfig;
 use utils::packet::parse_handshake_data;
 
 use std::net::TcpListener;
@@ -11,42 +11,25 @@ use std::net::TcpStream;
 use std::thread;
 
 use dotenv::dotenv;
+use std::fs;
 
-use sea_orm::{DatabaseConnection,EntityTrait};
-use models::server;
-
-use serde_json;
-use serde::{Serialize, Deserialize};
-
-#[derive(Serialize, Deserialize)]
-struct ServerOp {
-    id: String 
-}
-
-#[derive(Serialize)]
-struct SvStart {
-    text: String
-}
 
 fn transfer(mut src: TcpStream,mut dest: TcpStream) {
     let mut src_buffer = [0u8; 1024];
     
     loop {
-           
             let rdat_len = src.read(&mut src_buffer).unwrap();
             
             if rdat_len == 0 {
                 return;
             }
 
-
             let mut _tmpsrc = dest.write_all(&src_buffer[..rdat_len]).unwrap(); 
     }
 }
 
-async fn handle_client(mut client: TcpStream, db: DatabaseConnection, rqclient: reqwest::Client) {
-    
-    println!("DONE");
+async fn handle_client(mut client: TcpStream, servers: Vec<ServerConfig>) {
+
     let mut client_buffer = [0u8; 1024];
     let mut rdat_len: usize;
 
@@ -56,36 +39,19 @@ async fn handle_client(mut client: TcpStream, db: DatabaseConnection, rqclient: 
     let (_, _, _, svadr, _, intent) = parse_handshake_data(&client_buffer);
 
     
-    // TODO setup database configuration for address -> port determination
+    // Splitting sv adr for subdomain 
     let parts: Vec<&str> = svadr.split('.').collect();
-    
-    println!("{}",parts[0]);
+     
+    let mut out_port: Option<i32> =  None;
 
-    let sv = server::Entity::find_by_id(parts[0]).one(&db).await.unwrap().unwrap();
-
-    let port: i32 = sv.sport.unwrap();
-    
-    let repl = ServerOp {
-        id: parts[0].to_string()
-    };
-    if(sv.status.unwrap() == "OFF".to_string() && intent != 1) {
-        
-        //TODO add this to .env
-        rqclient.post("http://127.0.0.1:2000/start_server")
-            .json(&repl)
-            .send()
-            .await.unwrap();
-
-        let server_start_msg = SvStart {
-            text: "Your server is starting please wait a few seconds!".to_string()
-        };
-        
-        // TODO send error message to clinet
-        return;
-
+    for server in servers {
+        if server.name == parts[0] {
+            out_port = Some(server.port);
+        }
     }
     
-    
+    let port: i32 = out_port.unwrap();
+     
         // Create server connection
     let mut server = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
 
@@ -111,30 +77,44 @@ async fn handle_client(mut client: TcpStream, db: DatabaseConnection, rqclient: 
         if rdat_len == 0 {
             return;
         }
-
-
         server.write_all(&client_buffer[..rdat_len]).unwrap();
     }
 }
+
 
 #[tokio::main]
 async fn main() {
     dotenv().ok();
     
-    let reqclient = reqwest::Client::new();
-    let db_conn = db::init_db().await;
-     let tcp_server = TcpListener::bind("127.0.0.1:2001").unwrap();
+    let contents = fs::read_to_string("servers")
+        .expect("failed to read 'servers' file");
+
+    let servers: Vec<ServerConfig> = contents
+        .lines()
+        .filter(
+            |line| !line.trim().is_empty()
+        )
+        .map(
+            |line| {
+                let mut parts = line.splitn(2, ',');
+                let name = parts.next().expect("Missing server name").trim().to_string();
+                let port = parts.next().expect("Missing port").trim().parse::<i32>().expect("Invalid port");
+                ServerConfig {
+                    name,
+                    port
+                }
+        })
+        .collect();
+
+    let tcp_server = TcpListener::bind("127.0.0.1:2001").unwrap();
     
-    println!("[MAIN] Multiplexer on 127.0.0.1:2001");
-
-
+    println!("[MAIN] MSMP running on 127.0.0.1:2001");
+    
     for client in tcp_server.incoming() {
-        let db_clone= db_conn.clone();
-        let reqc_clone = reqclient.clone();
-        println!("connected");
+        let servers_clone  = servers.clone();
 
         tokio::spawn(async move {
-            handle_client(client.unwrap(), db_clone, reqc_clone).await;
+            handle_client(client.unwrap(), servers_clone).await;
         });
     }
 }
